@@ -1,0 +1,9 @@
+# global
+**/__pycache__
+**/_ignore
+**/tmp
+**/.DS_Store
+logs
+ckpts
+log
+ckpt
