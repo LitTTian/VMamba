@@ -80,15 +80,6 @@ def cross_merge_fn(y: torch.Tensor):
     with torch.cuda.device(y.device):
         return CMF.apply(y)
 
-class Linear2d(nn.Linear):
-    def forward(self, x: torch.Tensor):
-        # B, C, H, W = x.shape
-        return F.conv2d(x, self.weight[:, :, None, None], self.bias)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        state_dict[prefix + "weight"] = state_dict[prefix + "weight"].view(self.weight.shape)
-        return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
 class Permute(nn.Module):
     def __init__(self, *args):
         super().__init__()
@@ -184,7 +175,7 @@ class mamba_init:
 class SelectiveScanCuda(torch.autograd.Function):  # HL: 加速版本
     @staticmethod
     @torch.amp.custom_fwd(device_type="cuda")
-    def forward(ctx, u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False, oflex=True, backend=None):
+    def forward(ctx, u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=False):
         ctx.delta_softplus = delta_softplus
         out, x, *rest = selective_scan_cuda.fwd(u, delta, A, B, C, D, None, delta_bias, delta_softplus)
         ctx.save_for_backward(u, delta, A, B, C, D, delta_bias, x)
@@ -194,7 +185,6 @@ class SelectiveScanCuda(torch.autograd.Function):  # HL: 加速版本
     @torch.amp.custom_bwd(device_type="cuda")
     def backward(ctx, dout, *args):
         u, delta, A, B, C, D, delta_bias, x = ctx.saved_tensors
-        backend = ctx.backend
         if dout.stride(-1) != 1:
             dout = dout.contiguous()
         du, ddelta, dA, dB, dC, dD, ddelta_bias, *rest = selective_scan_cuda.bwd(

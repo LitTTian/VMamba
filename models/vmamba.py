@@ -119,30 +119,32 @@ class GlobalAvgPool(nn.Module):
     def forward(self, x):
         return torch.mean(x, dim=(1, 2))
 
-class VMambaB(nn.Module):
+class VMamba(nn.Module):
     def __init__(self, 
                  hidden_dim=128,
+                 num_vss_blocks=[2, 2, 15, 2],
                  out_features=1000,
+                 softmax: bool = False,
                  norm_layer: nn.Module = nn.LayerNorm, ):
         super().__init__()
         self.stem = PatchPartition(in_chans=3, embed_dim=hidden_dim, channel_first=True)  # 第一次图像输入(B, C, H, W)
         self.stage1 = nn.Sequential(
-            *[VSSBlock(hidden_dim=hidden_dim) for _ in range(2)],
+            *[VSSBlock(hidden_dim=hidden_dim) for _ in range(num_vss_blocks[0])],
             DownsampleV3(dim=hidden_dim, out_dim=hidden_dim*2)  # Permute + Conv2d + Permute + LayerNorm
         )
         
         self.stage2 = nn.Sequential(
-            *[VSSBlock(hidden_dim=hidden_dim*2) for _ in range(2)],
+            *[VSSBlock(hidden_dim=hidden_dim*2) for _ in range(num_vss_blocks[1])],
             DownsampleV3(dim=hidden_dim*2, out_dim=hidden_dim*4)
         )
 
         self.stage3 = nn.Sequential(
-            *[VSSBlock(hidden_dim=hidden_dim*4) for _ in range(15)],
+            *[VSSBlock(hidden_dim=hidden_dim*4) for _ in range(num_vss_blocks[2])],
             DownsampleV3(dim=hidden_dim*4, out_dim=hidden_dim*8)
         )
 
         self.stage4 = nn.Sequential(
-            *[VSSBlock(hidden_dim=hidden_dim*8) for _ in range(2)],
+            *[VSSBlock(hidden_dim=hidden_dim*8) for _ in range(num_vss_blocks[3])],
         )
 
         # 分类头
@@ -152,7 +154,8 @@ class VMambaB(nn.Module):
             # nn.Flatten(),
             GlobalAvgPool(),
             nn.Linear(in_features=hidden_dim*8, out_features=out_features),
-            nn.Softmax(dim=1)
+            # 训练的时候需要删除，CrossEntropyLoss已内置Softmax
+            nn.Softmax(dim=1) if softmax else nn.Identity()
         )
     
     def forward(self, x):
@@ -169,3 +172,42 @@ class VMambaB(nn.Module):
         x = self.stage4(x)
         x = self.classifier(x)
         return x
+    
+class VMambaB(VMamba):
+    def __init__(self, 
+                 hidden_dim=128,
+                 out_features=1000,
+                 norm_layer: nn.Module = nn.LayerNorm, ):
+        super().__init__(
+            hidden_dim=hidden_dim,
+            num_vss_blocks=[2, 2, 15, 2],
+            out_features=out_features,
+            norm_layer=norm_layer,
+            softmax=False,
+        )
+
+class VMambaS(VMamba):
+    def __init__(self, 
+                 hidden_dim=96,
+                 out_features=1000,
+                 norm_layer: nn.Module = nn.LayerNorm, ):
+        super().__init__(
+            hidden_dim=hidden_dim,
+            num_vss_blocks=[2, 2, 15, 2],
+            out_features=out_features,
+            norm_layer=norm_layer,
+            softmax=False,
+        )
+
+class VMambaT(VMamba):
+    def __init__(self, 
+                 hidden_dim=96,
+                 out_features=1000,
+                 norm_layer: nn.Module = nn.LayerNorm, ):
+        super().__init__(
+            hidden_dim=hidden_dim,
+            num_vss_blocks=[2, 2, 8, 2],
+            out_features=out_features,
+            norm_layer=norm_layer,
+            softmax=False,
+        )
